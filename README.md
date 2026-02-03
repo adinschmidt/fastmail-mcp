@@ -68,13 +68,7 @@ Dev (auto-reload):
 bun run dev
 ```
 
-Run via bunx (from npm, if published):
-
-```bash
-bunx --bun fastmail-mcp
-```
-
-Run via bunx directly from GitHub (no npm publish needed):
+Run via bunx:
 
 ```bash
 bunx --bun github:adinschmidt/fastmail-mcp
@@ -99,24 +93,7 @@ bunx --bun github:adinschmidt/fastmail-mcp
 }
 ```
 
-If you prefer `bunx` (npm):
-
-```jsonc
-{
-  "mcpServers": {
-    "fastmail": {
-      "command": "bunx",
-      "args": ["--bun", "fastmail-mcp"],
-      "env": {
-        "FASTMAIL_USERNAME": "you@fastmail.com",
-        "FASTMAIL_APP_PASSWORD": "your-app-password"
-      }
-    }
-  }
-}
-```
-
-If you prefer `bunx` from GitHub:
+If you prefer `bunx`:
 
 ```jsonc
 {
