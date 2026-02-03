@@ -164,7 +164,6 @@ Contacts (CardDAV):
 
 ## Security Notes
 
-- Do not commit credentials.
 - Prefer app passwords (Fastmail Settings > Privacy & Security > App passwords).
 
 ## Troubleshooting
