@@ -8,6 +8,14 @@ import { JmapClient } from './jmap/client.js';
 import { createDavClients, DavClients } from './dav/client.js';
 import { buildIcsEvent, parseIcsSummary } from './dav/ical.js';
 import { buildVCard, parseVCardSummary } from './dav/vcard.js';
+import {
+  extractCalendarTimezone,
+  resolveTimezone,
+  isValidTimezone,
+  ensureOffsetAware,
+  getMachineTimezone,
+  buildCalendarTimezoneProperty,
+} from './dav/timezone.js';
 
 const server = new McpServer({
   name: 'fastmail-mcp',
@@ -97,6 +105,7 @@ async function listCalendarsWithRights(): Promise<any[]> {
         id: c.url,
         name: typeof c.displayName === 'string' ? c.displayName : String(c.displayName ?? ''),
         url: c.url,
+        timezone: extractCalendarTimezone(c.timezone),
         canWrite: rights?.canWrite,
         privileges: rights?.privileges,
       };
@@ -348,12 +357,19 @@ server.tool(
     name: z.string().min(1).describe('Display name for the new calendar'),
     description: z.string().optional().describe('Calendar description'),
     color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional().describe('Calendar color as CSS hex (e.g. #FF0000)'),
+    timezone: z
+      .string()
+      .optional()
+      .describe('IANA timezone (e.g. America/New_York). Defaults to machine timezone.'),
   },
-  async ({ name, description, color }) => {
+  async ({ name, description, color, timezone }) => {
     const { caldav } = getDavClients();
     await caldav.login();
     const homeUrl = caldav.account?.homeUrl;
     if (!homeUrl) throw new Error('Could not determine calendar home URL');
+
+    const tz = timezone || getMachineTimezone();
+    if (!isValidTimezone(tz)) throw new Error(`Invalid timezone: ${tz}`);
 
     const id = crypto.randomUUID();
     const url = `${homeUrl}${id}/`;
@@ -361,24 +377,30 @@ server.tool(
     const props: Record<string, any> = { displayname: name };
     if (description) props['c:calendar-description'] = description;
     if (color) props['ca:calendar-color'] = color;
+    props['c:calendar-timezone'] = buildCalendarTimezoneProperty(tz);
 
     await caldav.makeCalendar({ url, props });
-    return asText({ calendarId: url, name });
+    return asText({ calendarId: url, name, timezone: tz });
   }
 );
 
 server.tool(
   'update_calendar',
-  'Update calendar properties (name, description, color) (CalDAV)',
+  'Update calendar properties (name, description, color, timezone) (CalDAV)',
   {
     calendarId: z.string().min(1).describe('Calendar URL from list_calendars'),
     name: z.string().min(1).optional().describe('New display name'),
     description: z.string().optional().describe('New description'),
     color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional().describe('New color as CSS hex (e.g. #FF0000)'),
+    timezone: z.string().optional().describe('IANA timezone (e.g. America/New_York)'),
   },
-  async ({ calendarId, name, description, color }) => {
-    if (name === undefined && description === undefined && color === undefined) {
-      throw new Error('At least one property (name, description, color) must be provided');
+  async ({ calendarId, name, description, color, timezone }) => {
+    if (name === undefined && description === undefined && color === undefined && timezone === undefined) {
+      throw new Error('At least one property (name, description, color, timezone) must be provided');
+    }
+
+    if (timezone !== undefined && !isValidTimezone(timezone)) {
+      throw new Error(`Invalid timezone: ${timezone}`);
     }
 
     const { caldav } = getDavClients();
@@ -397,6 +419,7 @@ server.tool(
     if (name !== undefined) setProps['displayname'] = name;
     if (description !== undefined) setProps['c:calendar-description'] = description;
     if (color !== undefined) setProps['ca:calendar-color'] = color;
+    if (timezone !== undefined) setProps['c:calendar-timezone'] = buildCalendarTimezoneProperty(timezone);
 
     await caldav.davRequest({
       url: calendarId,
@@ -467,21 +490,23 @@ server.tool(
   }
 );
 
+// Zod schema that accepts ISO 8601 with or without timezone offset.
+const isoDatetime = z.union([
+  z.string().datetime({ offset: true }),
+  z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/, 'ISO 8601 datetime (YYYY-MM-DDTHH:MM:SS)'),
+]);
+
 server.tool(
   'list_calendar_events',
   'List calendar events (CalDAV). Time range is normalized to UTC. Returns minimal parsed summaries + raw iCal.',
   {
     calendarId: z.string().min(1).describe('Calendar id (calendar URL) from list_calendars'),
-    timeRangeStart: z
-      .string()
-      .datetime({ offset: true })
+    timeRangeStart: isoDatetime
       .optional()
-      .describe('ISO 8601 datetime with timezone (Z or +/-HH:MM). Converted to UTC for CalDAV query.'),
-    timeRangeEnd: z
-      .string()
-      .datetime({ offset: true })
+      .describe('ISO 8601 datetime. Offset optional — naive times use the calendar timezone (or machine default).'),
+    timeRangeEnd: isoDatetime
       .optional()
-      .describe('ISO 8601 datetime with timezone (Z or +/-HH:MM). Converted to UTC for CalDAV query.'),
+      .describe('ISO 8601 datetime. Offset optional — naive times use the calendar timezone (or machine default).'),
     limit: z.number().int().min(1).max(500).default(50),
   },
   async ({ calendarId, timeRangeStart, timeRangeEnd, limit }) => {
@@ -493,7 +518,11 @@ server.tool(
 
     const params: any = { calendar };
     if (timeRangeStart && timeRangeEnd) {
-      params.timeRange = { start: timeRangeStart, end: timeRangeEnd };
+      const tz = resolveTimezone(extractCalendarTimezone(calendar.timezone));
+      params.timeRange = {
+        start: ensureOffsetAware(timeRangeStart, tz),
+        end: ensureOffsetAware(timeRangeEnd, tz),
+      };
     }
     const objs = await caldav.fetchCalendarObjects(params);
     const sliced = (objs || []).slice(0, limit);
@@ -514,8 +543,8 @@ server.tool(
   'Alias for list_calendar_events (CalDAV)',
   {
     calendarUrl: z.string().min(1),
-    timeRangeStart: z.string().datetime({ offset: true }).optional(),
-    timeRangeEnd: z.string().datetime({ offset: true }).optional(),
+    timeRangeStart: isoDatetime.optional(),
+    timeRangeEnd: isoDatetime.optional(),
     limit: z.number().int().min(1).max(500).default(50),
   },
   async ({ calendarUrl, timeRangeStart, timeRangeEnd, limit }) => {
@@ -527,7 +556,11 @@ server.tool(
 
     const params: any = { calendar };
     if (timeRangeStart && timeRangeEnd) {
-      params.timeRange = { start: timeRangeStart, end: timeRangeEnd };
+      const tz = resolveTimezone(extractCalendarTimezone(calendar.timezone));
+      params.timeRange = {
+        start: ensureOffsetAware(timeRangeStart, tz),
+        end: ensureOffsetAware(timeRangeEnd, tz),
+      };
     }
     const objs = await caldav.fetchCalendarObjects(params);
     const sliced = (objs || []).slice(0, limit);
@@ -544,12 +577,12 @@ server.tool(
 
 server.tool(
   'create_calendar_event',
-  'Create a calendar event (CalDAV). Event times are written in UTC (Z).',
+  'Create a calendar event (CalDAV). Event times are stored as UTC. Naive datetimes (no offset) are interpreted in the calendar timezone (or machine default).',
   {
     calendarId: z.string().min(1).describe('Calendar id (calendar URL) from list_calendars'),
     title: z.string().min(1),
-    start: z.string().datetime({ offset: true }).describe('ISO 8601 datetime with timezone (Z or +/-HH:MM). Stored as UTC.'),
-    end: z.string().datetime({ offset: true }).describe('ISO 8601 datetime with timezone (Z or +/-HH:MM). Stored as UTC.'),
+    start: isoDatetime.describe('ISO 8601 datetime. Offset optional — naive times use the calendar timezone (or machine default).'),
+    end: isoDatetime.describe('ISO 8601 datetime. Offset optional — naive times use the calendar timezone (or machine default).'),
     description: z.string().optional(),
     location: z.string().optional(),
     attendees: z
@@ -574,10 +607,12 @@ server.tool(
       throw new Error('Missing organizer email. Set FASTMAIL_ORGANIZER_EMAIL (or FASTMAIL_USERNAME).');
     }
 
+    const tz = resolveTimezone(extractCalendarTimezone(calendar.timezone));
+
     const { uid, ics, filename } = buildIcsEvent({
       title,
-      start,
-      end,
+      start: ensureOffsetAware(start, tz),
+      end: ensureOffsetAware(end, tz),
       description,
       location,
       organizerEmail,

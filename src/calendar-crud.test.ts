@@ -1,4 +1,10 @@
 import { describe, test, expect, mock, beforeEach } from 'bun:test';
+import {
+  getMachineTimezone,
+  isValidTimezone,
+  buildCalendarTimezoneProperty,
+  extractCalendarTimezone,
+} from './dav/timezone';
 
 /**
  * Unit tests for the create_calendar, update_calendar, and delete_calendar
@@ -86,12 +92,15 @@ async function getCalendarRights(caldav: MockCaldav, calendarUrl: string) {
 
 async function handleCreateCalendar(
   caldav: MockCaldav,
-  params: { name: string; description?: string; color?: string }
+  params: { name: string; description?: string; color?: string; timezone?: string }
 ) {
-  const { name, description, color } = params;
+  const { name, description, color, timezone } = params;
   await caldav.login();
   const homeUrl = caldav.account?.homeUrl;
   if (!homeUrl) throw new Error('Could not determine calendar home URL');
+
+  const tz = timezone || getMachineTimezone();
+  if (!isValidTimezone(tz)) throw new Error(`Invalid timezone: ${tz}`);
 
   const id = crypto.randomUUID();
   const url = `${homeUrl}${id}/`;
@@ -99,18 +108,23 @@ async function handleCreateCalendar(
   const props: Record<string, any> = { displayname: name };
   if (description) props['c:calendar-description'] = description;
   if (color) props['ca:calendar-color'] = color;
+  props['c:calendar-timezone'] = buildCalendarTimezoneProperty(tz);
 
   await caldav.makeCalendar({ url, props });
-  return { calendarId: url, name };
+  return { calendarId: url, name, timezone: tz };
 }
 
 async function handleUpdateCalendar(
   caldav: MockCaldav,
-  params: { calendarId: string; name?: string; description?: string; color?: string }
+  params: { calendarId: string; name?: string; description?: string; color?: string; timezone?: string }
 ) {
-  const { calendarId, name, description, color } = params;
-  if (name === undefined && description === undefined && color === undefined) {
-    throw new Error('At least one property (name, description, color) must be provided');
+  const { calendarId, name, description, color, timezone } = params;
+  if (name === undefined && description === undefined && color === undefined && timezone === undefined) {
+    throw new Error('At least one property (name, description, color, timezone) must be provided');
+  }
+
+  if (timezone !== undefined && !isValidTimezone(timezone)) {
+    throw new Error(`Invalid timezone: ${timezone}`);
   }
 
   await caldav.login();
@@ -128,6 +142,7 @@ async function handleUpdateCalendar(
   if (name !== undefined) setProps['displayname'] = name;
   if (description !== undefined) setProps['c:calendar-description'] = description;
   if (color !== undefined) setProps['ca:calendar-color'] = color;
+  if (timezone !== undefined) setProps['c:calendar-timezone'] = buildCalendarTimezoneProperty(timezone);
 
   await caldav.davRequest({
     url: calendarId,
@@ -183,6 +198,35 @@ describe('create_calendar', () => {
     expect(call.url).toEndWith('/');
     expect(call.props.displayname).toBe('My Calendar');
     expect(result.name).toBe('My Calendar');
+  });
+
+  test('sets c:calendar-timezone with machine default when timezone not provided', async () => {
+    const caldav = createMockCaldav();
+    const result = await handleCreateCalendar(caldav, { name: 'Test' });
+
+    const call = (caldav.makeCalendar as any).mock.calls[0][0];
+    const tzProp = call.props['c:calendar-timezone'];
+    expect(tzProp).toBeDefined();
+    expect(tzProp).toContain('BEGIN:VTIMEZONE');
+    expect(tzProp).toContain(`TZID:${getMachineTimezone()}`);
+    expect(result.timezone).toBe(getMachineTimezone());
+  });
+
+  test('sets c:calendar-timezone with explicit timezone', async () => {
+    const caldav = createMockCaldav();
+    const result = await handleCreateCalendar(caldav, { name: 'Test', timezone: 'Europe/London' });
+
+    const call = (caldav.makeCalendar as any).mock.calls[0][0];
+    const tzProp = call.props['c:calendar-timezone'];
+    expect(tzProp).toContain('TZID:Europe/London');
+    expect(result.timezone).toBe('Europe/London');
+  });
+
+  test('throws for invalid timezone', async () => {
+    const caldav = createMockCaldav();
+    await expect(
+      handleCreateCalendar(caldav, { name: 'Test', timezone: 'Not/Valid' })
+    ).rejects.toThrow('Invalid timezone');
   });
 
   test('includes c:calendar-description when description provided', async () => {
@@ -272,6 +316,31 @@ describe('update_calendar', () => {
 
     expect(Object.keys(setProps)).toEqual(['ca:calendar-color']);
     expect(setProps['ca:calendar-color']).toBe('#0000FF');
+  });
+
+  test('sets c:calendar-timezone when timezone provided', async () => {
+    const caldav = createMockCaldav();
+    await handleUpdateCalendar(caldav, { calendarId: calUrl, timezone: 'Asia/Tokyo' });
+
+    const call = (caldav.davRequest as any).mock.calls[0][0];
+    const setProps = call.init.body.propertyupdate.set.prop;
+    expect(setProps['c:calendar-timezone']).toContain('TZID:Asia/Tokyo');
+  });
+
+  test('throws for invalid timezone', async () => {
+    const caldav = createMockCaldav();
+    await expect(
+      handleUpdateCalendar(caldav, { calendarId: calUrl, timezone: 'Bogus/Zone' })
+    ).rejects.toThrow('Invalid timezone');
+  });
+
+  test('accepts timezone as the only property', async () => {
+    const caldav = createMockCaldav();
+    await handleUpdateCalendar(caldav, { calendarId: calUrl, timezone: 'UTC' });
+
+    const call = (caldav.davRequest as any).mock.calls[0][0];
+    const setProps = call.init.body.propertyupdate.set.prop;
+    expect(Object.keys(setProps)).toEqual(['c:calendar-timezone']);
   });
 
   test('throws when no properties provided', async () => {
