@@ -126,6 +126,21 @@ describe('naiveToUtcIso', () => {
     expect(result).toBe('2026-03-01T10:00:00.000Z');
   });
 
+  test('handles DST spring-forward correctly (Mar 8 2026, America/New_York)', () => {
+    // Clocks spring forward at 2:00 AM EST → 3:00 AM EDT on Mar 8, 2026.
+    // 03:30 local exists only as EDT (UTC-4), so correct UTC is 07:30.
+    const result = naiveToUtcIso('2026-03-08T03:30:00', 'America/New_York');
+    expect(result).toBe('2026-03-08T07:30:00.000Z');
+  });
+
+  test('handles DST fall-back correctly (Nov 1 2026, America/New_York)', () => {
+    // Clocks fall back at 2:00 AM EDT → 1:00 AM EST on Nov 1, 2026.
+    // 01:30 is ambiguous; we accept either EDT (05:30Z) or EST (06:30Z).
+    const result = naiveToUtcIso('2026-11-01T01:30:00', 'America/New_York');
+    const utcHour = new Date(result).getUTCHours();
+    expect(utcHour === 5 || utcHour === 6).toBe(true);
+  });
+
   test('throws for invalid datetime format', () => {
     expect(() => naiveToUtcIso('not-a-date', 'UTC')).toThrow('Invalid naive datetime');
     expect(() => naiveToUtcIso('2026-02-23', 'UTC')).toThrow('Invalid naive datetime');

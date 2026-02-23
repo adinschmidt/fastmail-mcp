@@ -40,9 +40,20 @@ export function hasTimezoneOffset(datetime: string): boolean {
   return /Z$|[+-]\d{2}:\d{2}$/.test(datetime);
 }
 
+/** Compute the UTC offset (in ms) of a timezone at a given UTC instant. */
+function getOffsetMs(instant: Date, tzId: string): number {
+  const utcRepr = new Date(instant.toLocaleString('en-US', { timeZone: 'UTC' }));
+  const tzRepr = new Date(instant.toLocaleString('en-US', { timeZone: tzId }));
+  return tzRepr.getTime() - utcRepr.getTime();
+}
+
 /**
  * Convert a naive (no-offset) ISO datetime to a UTC ISO string,
  * interpreting the naive time as being in the given IANA timezone.
+ *
+ * Uses a two-pass approach to handle DST transitions correctly: the first
+ * pass estimates the offset, the second pass refines it at the candidate UTC
+ * instant (which may fall in a different DST period than the initial guess).
  *
  * E.g. naiveToUtcIso("2026-06-15T14:30:00", "America/New_York")
  *   → "2026-06-15T18:30:00.000Z"  (EDT = UTC-4)
@@ -58,14 +69,14 @@ export function naiveToUtcIso(naive: string, tzId: string): string {
   // Treat the components as-if UTC to get a reference point.
   const asUtc = new Date(Date.UTC(y, mo - 1, d, h, mi, s));
 
-  // Determine the UTC offset of the target timezone at this approximate instant.
-  // We format the same UTC instant in both UTC and the target tz, then diff.
-  const utcRepr = new Date(asUtc.toLocaleString('en-US', { timeZone: 'UTC' }));
-  const tzRepr = new Date(asUtc.toLocaleString('en-US', { timeZone: tzId }));
-  const offsetMs = tzRepr.getTime() - utcRepr.getTime();
+  // First pass: estimate offset at the naive-as-UTC instant.
+  const offsetMs1 = getOffsetMs(asUtc, tzId);
+  const candidate = new Date(asUtc.getTime() - offsetMs1);
 
-  // The real UTC time = asUtc shifted back by the offset.
-  return new Date(asUtc.getTime() - offsetMs).toISOString();
+  // Second pass: refine offset at the candidate (correct for DST transitions).
+  const offsetMs2 = getOffsetMs(candidate, tzId);
+
+  return new Date(asUtc.getTime() - offsetMs2).toISOString();
 }
 
 /**
