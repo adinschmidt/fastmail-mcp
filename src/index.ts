@@ -403,11 +403,15 @@ server.tool(
       init: {
         method: 'PROPPATCH',
         namespace: 'd',
-        body: { propertyupdate: { set: { prop: setProps } } },
-        attributes: {
-          'xmlns:d': 'DAV:',
-          'xmlns:c': 'urn:ietf:params:xml:ns:caldav',
-          'xmlns:ca': 'http://apple.com/ns/ical/',
+        body: {
+          propertyupdate: {
+            _attributes: {
+              'xmlns:d': 'DAV:',
+              'xmlns:c': 'urn:ietf:params:xml:ns:caldav',
+              'xmlns:ca': 'http://apple.com/ns/ical/',
+            },
+            set: { prop: setProps },
+          },
         },
       },
     });

@@ -134,11 +134,15 @@ async function handleUpdateCalendar(
     init: {
       method: 'PROPPATCH',
       namespace: 'd',
-      body: { propertyupdate: { set: { prop: setProps } } },
-      attributes: {
-        'xmlns:d': 'DAV:',
-        'xmlns:c': 'urn:ietf:params:xml:ns:caldav',
-        'xmlns:ca': 'http://apple.com/ns/ical/',
+      body: {
+        propertyupdate: {
+          _attributes: {
+            'xmlns:d': 'DAV:',
+            'xmlns:c': 'urn:ietf:params:xml:ns:caldav',
+            'xmlns:ca': 'http://apple.com/ns/ical/',
+          },
+          set: { prop: setProps },
+        },
       },
     },
   });
@@ -232,7 +236,7 @@ describe('update_calendar', () => {
     expect(call.url).toBe(calUrl);
     expect(call.init.method).toBe('PROPPATCH');
     expect(call.init.namespace).toBe('d');
-    expect(call.init.attributes).toEqual({
+    expect(call.init.body.propertyupdate._attributes).toEqual({
       'xmlns:d': 'DAV:',
       'xmlns:c': 'urn:ietf:params:xml:ns:caldav',
       'xmlns:ca': 'http://apple.com/ns/ical/',
