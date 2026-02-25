@@ -219,9 +219,9 @@ server.tool(
 
 server.tool(
   'list_emails',
-  'List emails from a mailbox (JMAP)',
+  'List emails from a mailbox (JMAP). You MUST call list_mailboxes first to get the mailbox ID — pass the id field, not the name.',
   {
-    mailboxId: z.string().optional().describe('Mailbox id (optional)'),
+    mailboxId: z.string().optional().describe('Mailbox ID from list_mailboxes (e.g. "P-F"). Do NOT pass a name like "Inbox". If omitted, returns emails from ALL mailboxes.'),
     limit: z.number().int().min(1).max(200).default(20).describe('Max emails to return'),
   },
   async ({ mailboxId, limit }) => {
@@ -293,10 +293,10 @@ server.tool(
 
 server.tool(
   'move_email',
-  'Move an email to another mailbox (JMAP)',
+  'Move an email to another mailbox (JMAP). Call list_mailboxes first to get the target mailbox ID.',
   {
     emailId: z.string().min(1),
-    targetMailboxId: z.string().min(1),
+    targetMailboxId: z.string().min(1).describe('Mailbox ID from list_mailboxes (e.g. "P1-"). Do NOT pass a name like "Trash".'),
   },
   async ({ emailId, targetMailboxId }) => {
     const c = getJmapClient();
