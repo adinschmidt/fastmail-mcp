@@ -1,6 +1,0 @@
-{
-  "name": "mcps",
-  "private": true,
-  "workspaces": ["packages/*"],
-  "packageManager": "bun@1.3.5"
-}
