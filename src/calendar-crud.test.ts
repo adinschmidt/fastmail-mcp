@@ -4,7 +4,7 @@ import {
   isValidTimezone,
   buildCalendarTimezoneProperty,
   extractCalendarTimezone,
-} from './dav/timezone';
+} from './dav/timezone.js';
 
 /**
  * Unit tests for the create_calendar, update_calendar, and delete_calendar

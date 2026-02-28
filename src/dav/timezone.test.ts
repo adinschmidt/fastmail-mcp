@@ -8,7 +8,7 @@ import {
   naiveToUtcIso,
   ensureOffsetAware,
   buildCalendarTimezoneProperty,
-} from './timezone';
+} from './timezone.js';
 
 describe('getMachineTimezone', () => {
   test('returns a non-empty valid IANA timezone string', () => {
