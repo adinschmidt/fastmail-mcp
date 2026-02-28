@@ -1,5 +1,7 @@
 # fastmail-mcp
 
+> **Looking for more?** Check out my [other MCP tools](https://github.com/adinschmidt/mcps).
+
 Unified Model Context Protocol (MCP) server for:
 
 - Mail via Fastmail JMAP
