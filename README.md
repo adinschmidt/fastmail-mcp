@@ -1,6 +1,6 @@
-# fastmail-mcp
+Check out my [other MCP tools](https://github.com/adinschmidt/mcps)
 
-> **Looking for more?** Check out my [other MCP tools](https://github.com/adinschmidt/mcps).
+# fastmail-mcp
 
 Unified Model Context Protocol (MCP) server for:
 
