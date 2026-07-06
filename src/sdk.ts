@@ -1,17 +1,21 @@
 /**
- * Fastmail SDK — importable TypeScript API for mail, calendar, and contacts.
+ * JMAP/DAV SDK — importable TypeScript API for mail (JMAP), calendar (CalDAV),
+ * and contacts (CardDAV). Works with any compliant server; Fastmail works out
+ * of the box.
  *
  * Usage:
- *   import * as fastmail from './fastmail-mcp/src/sdk.js';
- *   const emails = await fastmail.listEmails({ limit: 5 });
+ *   import * as jmapdav from './jmap-dav-mcp/src/sdk.js';
+ *   const emails = await jmapdav.listEmails({ limit: 5 });
  *   console.log(emails);
  *
  * Requires the same env vars as the MCP server:
- *   FASTMAIL_USERNAME + FASTMAIL_APP_PASSWORD  (or FASTMAIL_API_TOKEN)
+ *   JMAP_USERNAME + JMAP_PASSWORD (or JMAP_API_TOKEN) + JMAP_BASE_URL for mail;
+ *   DAV_USERNAME + DAV_PASSWORD + CALDAV_URL/CARDDAV_URL for calendar/contacts.
+ *   Legacy FASTMAIL_* vars are accepted and imply Fastmail server URLs.
  */
 
-import { loadFastmailAuthConfig, loadDavConfig } from './config.js';
-import { FastmailJmapAuth } from './jmap/auth.js';
+import { loadJmapAuthConfig, loadDavConfig, getOrganizerEmail } from './config.js';
+import { JmapAuth } from './jmap/auth.js';
 import { JmapClient } from './jmap/client.js';
 import { createDavClients, type DavClients } from './dav/client.js';
 import { buildIcsEvent, parseIcsSummary } from './dav/ical.js';
@@ -34,7 +38,7 @@ let _dav: DavClients | null = null;
 
 function jmap(): JmapClient {
   if (!_jmap) {
-    _jmap = new JmapClient(new FastmailJmapAuth(loadFastmailAuthConfig()));
+    _jmap = new JmapClient(new JmapAuth(loadJmapAuthConfig()));
   }
   return _jmap;
 }
@@ -117,7 +121,7 @@ function assertMailboxCanBeDeleted(mailboxes: any[], mailboxId: string): void {
 // Mail (JMAP)
 // ---------------------------------------------------------------------------
 
-/** List all Fastmail mailboxes. */
+/** List all mailboxes. */
 export async function listMailboxes() {
   return jmap().listMailboxes();
 }
@@ -401,10 +405,9 @@ export async function createCalendarEvent(input: {
     throw new Error('This calendar is read-only. Pick a calendar with canWrite=true from listCalendars.');
   }
 
-  const organizerEmail =
-    process.env.FASTMAIL_ORGANIZER_EMAIL || process.env.FASTMAIL_USERNAME || process.env.FASTMAIL_DAV_USERNAME;
+  const organizerEmail = getOrganizerEmail();
   if (!organizerEmail) {
-    throw new Error('Missing organizer email. Set FASTMAIL_ORGANIZER_EMAIL (or FASTMAIL_USERNAME).');
+    throw new Error('Missing organizer email. Set DAV_ORGANIZER_EMAIL (or DAV_USERNAME).');
   }
 
   const tz = resolveTimezone(extractCalendarTimezone(calendar.timezone));

@@ -1,4 +1,4 @@
-import { FastmailJmapAuth } from './auth.js';
+import { JmapAuth } from './auth.js';
 import { JmapRequest, JmapResponse, JmapSession } from './types.js';
 
 const JMAP_CORE_CAPABILITY = 'urn:ietf:params:jmap:core';
@@ -6,17 +6,39 @@ const JMAP_MAIL_CAPABILITY = 'urn:ietf:params:jmap:mail';
 const JMAP_SUBMISSION_CAPABILITY = 'urn:ietf:params:jmap:submission';
 
 export class JmapClient {
-  private auth: FastmailJmapAuth;
+  private auth: JmapAuth;
   private session: JmapSession | null = null;
 
-  constructor(auth: FastmailJmapAuth) {
+  constructor(auth: JmapAuth) {
     this.auth = auth;
+  }
+
+  // Follow redirects manually so the Authorization header survives
+  // cross-origin hops (fetch strips it), e.g. /.well-known/jmap redirects.
+  private async fetchWithAuthRedirects(url: string): Promise<Response> {
+    let current = url;
+    for (let hop = 0; hop < 5; hop++) {
+      const res = await fetch(current, {
+        method: 'GET',
+        headers: this.auth.getHeaders(),
+        redirect: 'manual',
+      });
+      if (res.status >= 300 && res.status < 400) {
+        const location = res.headers.get('location');
+        if (location) {
+          current = new URL(location, current).href;
+          continue;
+        }
+      }
+      return res;
+    }
+    throw new Error(`Too many redirects fetching JMAP session from ${url}`);
   }
 
   async getSession(): Promise<JmapSession> {
     if (this.session) return this.session;
 
-    const res = await fetch(this.auth.getSessionUrl(), { method: 'GET', headers: this.auth.getHeaders() });
+    const res = await this.fetchWithAuthRedirects(this.auth.getSessionUrl());
     if (!res.ok) {
       throw new Error(`Failed to get JMAP session (${res.status})`);
     }

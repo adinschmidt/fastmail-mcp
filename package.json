@@ -1,17 +1,20 @@
 {
-  "name": "fastmail-mcp",
-  "version": "0.1.0",
-  "description": "MCP server for Fastmail mail (JMAP) + calendar (CalDAV) + contacts (CardDAV)",
+  "name": "jmap-dav-mcp",
+  "version": "0.2.0",
+  "description": "Generic MCP server for mail (JMAP) + calendar (CalDAV) + contacts (CardDAV). Works with Fastmail out of the box.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "fastmail-mcp": "src/index.ts"
+    "jmap-dav-mcp": "src/index.ts",
+    "fastmail-mcp": "src/index.ts",
+    "jmap-mcp": "src/bin/jmap-mcp.ts",
+    "dav-mcp": "src/bin/dav-mcp.ts"
   },
   "scripts": {
     "dev": "bun --watch src/index.ts",
     "start": "bun src/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "build": "bun build src/index.ts --outdir dist --target node --format esm",
+    "build": "bun build src/index.ts src/bin/jmap-mcp.ts src/bin/dav-mcp.ts --outdir dist --target node --format esm",
     "clean": "rm -rf dist",
     "test": "bun test"
   },

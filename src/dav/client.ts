@@ -9,14 +9,14 @@ export type DavClients = {
 export function createDavClients(cfg: DavConfig): DavClients {
   const caldav = new DAVClient({
     serverUrl: cfg.caldavUrl,
-    credentials: { username: cfg.username, password: cfg.appPassword },
+    credentials: { username: cfg.username, password: cfg.password },
     authMethod: 'Basic',
     defaultAccountType: 'caldav',
   });
 
   const carddav = new DAVClient({
     serverUrl: cfg.carddavUrl,
-    credentials: { username: cfg.username, password: cfg.appPassword },
+    credentials: { username: cfg.username, password: cfg.password },
     authMethod: 'Basic',
     defaultAccountType: 'carddav',
   });

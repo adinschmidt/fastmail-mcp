@@ -62,7 +62,7 @@ export function buildIcsEvent(input: CreateEventInput): { uid: string; ics: stri
   const lines: string[] = [];
   lines.push('BEGIN:VCALENDAR');
   lines.push('VERSION:2.0');
-  lines.push('PRODID:-//fastmail-mcp//EN');
+  lines.push('PRODID:-//jmap-dav-mcp//EN');
   lines.push('CALSCALE:GREGORIAN');
   lines.push('BEGIN:VEVENT');
   lines.push(`UID:${uid}`);
@@ -70,7 +70,7 @@ export function buildIcsEvent(input: CreateEventInput): { uid: string; ics: stri
   lines.push(`DTSTART:${dtstart}`);
   lines.push(`DTEND:${dtend}`);
 
-  // Fastmail CalDAV enforces scheduling/iTIP restrictions and requires ORGANIZER.
+  // Some CalDAV servers (e.g. Fastmail) enforce scheduling/iTIP restrictions and require ORGANIZER.
   const organizerCn = input.organizerName ? `;CN=${escText(input.organizerName)}` : '';
   lines.push(foldLine(`ORGANIZER${organizerCn}:mailto:${input.organizerEmail}`));
 

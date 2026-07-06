@@ -2,8 +2,14 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { loadDavConfig, loadFastmailAuthConfig } from './config.js';
-import { FastmailJmapAuth } from './jmap/auth.js';
+import {
+  loadDavConfig,
+  loadJmapAuthConfig,
+  hasJmapConfig,
+  hasDavConfig,
+  getOrganizerEmail,
+} from './config.js';
+import { JmapAuth } from './jmap/auth.js';
 import { JmapClient } from './jmap/client.js';
 import { createDavClients, DavClients } from './dav/client.js';
 import { buildIcsEvent, parseIcsSummary } from './dav/ical.js';
@@ -18,17 +24,56 @@ import {
 } from './dav/timezone.js';
 
 const server = new McpServer({
-  name: 'fastmail-mcp',
+  name: 'jmap-dav-mcp',
   version: '0.1.0',
 });
+
+type ToolDomain = 'mail' | 'calendar' | 'contacts';
+const ALL_DOMAINS: ToolDomain[] = ['mail', 'calendar', 'contacts'];
+
+function resolveDomains(): Set<ToolDomain> {
+  const raw = process.env.MCP_DOMAINS;
+  if (raw && raw.trim()) {
+    const requested = raw
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+    const invalid = requested.filter((d) => !ALL_DOMAINS.includes(d as ToolDomain));
+    if (invalid.length) {
+      throw new Error(`Invalid MCP_DOMAINS entries: ${invalid.join(', ')}. Valid: ${ALL_DOMAINS.join(', ')}`);
+    }
+    return new Set(requested as ToolDomain[]);
+  }
+  const auto = new Set<ToolDomain>();
+  if (hasJmapConfig()) auto.add('mail');
+  if (hasDavConfig()) {
+    auto.add('calendar');
+    auto.add('contacts');
+  }
+  // Nothing configured yet: register everything so clients can browse the
+  // tools; calls fail with actionable configuration errors.
+  return auto.size ? auto : new Set(ALL_DOMAINS);
+}
+
+const domains = resolveDomains();
+
+// Registers the tool only when its domain is enabled. Cast preserves the
+// overloaded signature of server.tool so handler params stay inferred.
+function makeTool(enabled: boolean): McpServer['tool'] {
+  if (enabled) return server.tool.bind(server) as McpServer['tool'];
+  return ((..._args: unknown[]) => undefined) as unknown as McpServer['tool'];
+}
+const mailTool = makeTool(domains.has('mail'));
+const calendarTool = makeTool(domains.has('calendar'));
+const contactTool = makeTool(domains.has('contacts'));
 
 let jmapClient: JmapClient | null = null;
 let davClients: DavClients | null = null;
 
 function getJmapClient(): JmapClient {
   if (jmapClient) return jmapClient;
-  const cfg = loadFastmailAuthConfig();
-  const auth = new FastmailJmapAuth(cfg);
+  const cfg = loadJmapAuthConfig();
+  const auth = new JmapAuth(cfg);
   jmapClient = new JmapClient(auth);
   return jmapClient;
 }
@@ -151,13 +196,13 @@ function assertMailboxCanBeDeleted(mailboxes: any[], mailboxId: string): void {
 }
 
 // Mail (JMAP)
-server.tool('list_mailboxes', 'List Fastmail mailboxes (JMAP)', async () => {
+mailTool('list_mailboxes', 'List mailboxes/folders (JMAP)', async () => {
   const c = getJmapClient();
   const mailboxes = await c.listMailboxes();
   return asText(mailboxes);
 });
 
-server.tool(
+mailTool(
   'create_mailbox',
   'Create a mailbox/folder (label) (JMAP)',
   {
@@ -174,7 +219,7 @@ server.tool(
   }
 );
 
-server.tool(
+mailTool(
   'update_mailbox',
   'Update mailbox properties (JMAP)',
   {
@@ -204,7 +249,7 @@ server.tool(
   }
 );
 
-server.tool(
+mailTool(
   'delete_mailbox',
   'Delete a mailbox/folder (label) (JMAP)',
   { mailboxId: z.string().min(1) },
@@ -217,7 +262,7 @@ server.tool(
   }
 );
 
-server.tool(
+mailTool(
   'list_emails',
   'List emails from a mailbox (JMAP). You MUST call list_mailboxes first to get the mailbox ID — pass the id field, not the name.',
   {
@@ -231,7 +276,7 @@ server.tool(
   }
 );
 
-server.tool(
+mailTool(
   'get_email',
   'Get an email by id (JMAP)',
   { emailId: z.string().min(1) },
@@ -242,7 +287,7 @@ server.tool(
   }
 );
 
-server.tool(
+mailTool(
   'search_emails',
   'Search emails by full-text query (JMAP)',
   {
@@ -256,7 +301,7 @@ server.tool(
   }
 );
 
-server.tool(
+mailTool(
   'send_email',
   'Send an email (JMAP)',
   {
@@ -277,7 +322,7 @@ server.tool(
   }
 );
 
-server.tool(
+mailTool(
   'mark_email_read',
   'Mark an email read/unread (JMAP)',
   {
@@ -291,7 +336,7 @@ server.tool(
   }
 );
 
-server.tool(
+mailTool(
   'move_email',
   'Move an email to another mailbox (JMAP). Call list_mailboxes first to get the target mailbox ID.',
   {
@@ -305,7 +350,7 @@ server.tool(
   }
 );
 
-server.tool(
+mailTool(
   'delete_email',
   'Delete an email (moves to Trash) (JMAP)',
   { emailId: z.string().min(1) },
@@ -316,7 +361,7 @@ server.tool(
   }
 );
 
-server.tool(
+mailTool(
   'get_email_attachments',
   'List attachments for an email (JMAP)',
   { emailId: z.string().min(1) },
@@ -327,7 +372,7 @@ server.tool(
   }
 );
 
-server.tool(
+mailTool(
   'download_attachment',
   'Get a download URL for an attachment (JMAP)',
   { emailId: z.string().min(1), attachmentId: z.string().min(1) },
@@ -339,18 +384,12 @@ server.tool(
 );
 
 // Calendar (CalDAV)
-server.tool('list_calendars', 'List calendars (CalDAV)', async () => {
+calendarTool('list_calendars', 'List calendars (CalDAV)', async () => {
   const mapped = await listCalendarsWithRights();
   return asText(mapped);
 });
 
-// Back-compat with dav-mcp-server naming
-server.tool('get_my_fastmail_calendars', 'Alias for list_calendars (CalDAV)', async () => {
-  const mapped = await listCalendarsWithRights();
-  return asText(mapped);
-});
-
-server.tool(
+calendarTool(
   'create_calendar',
   'Create a new calendar collection (CalDAV)',
   {
@@ -384,7 +423,7 @@ server.tool(
   }
 );
 
-server.tool(
+calendarTool(
   'update_calendar',
   'Update calendar properties (name, description, color, timezone) (CalDAV)',
   {
@@ -443,7 +482,7 @@ server.tool(
   }
 );
 
-server.tool(
+calendarTool(
   'delete_calendar',
   'Delete a calendar collection (CalDAV). Refuses to delete the last remaining calendar.',
   {
@@ -466,7 +505,7 @@ server.tool(
   }
 );
 
-server.tool(
+calendarTool(
   'get_calendar_event',
   'Get a calendar event by id (event URL) (CalDAV)',
   { eventId: z.string().min(1) },
@@ -496,7 +535,7 @@ const isoDatetime = z.union([
   z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/, 'ISO 8601 datetime (YYYY-MM-DDTHH:MM:SS)'),
 ]);
 
-server.tool(
+calendarTool(
   'list_calendar_events',
   'List calendar events (CalDAV). Time range is normalized to UTC. Returns minimal parsed summaries + raw iCal.',
   {
@@ -537,45 +576,7 @@ server.tool(
   }
 );
 
-// Back-compat with dav-mcp-server naming
-server.tool(
-  'get_calendar_events_from_fastmail',
-  'Alias for list_calendar_events (CalDAV)',
-  {
-    calendarUrl: z.string().min(1),
-    timeRangeStart: isoDatetime.optional(),
-    timeRangeEnd: isoDatetime.optional(),
-    limit: z.number().int().min(1).max(500).default(50),
-  },
-  async ({ calendarUrl, timeRangeStart, timeRangeEnd, limit }) => {
-    const { caldav } = getDavClients();
-    await caldav.login();
-    const calendars = await caldav.fetchCalendars();
-    const calendar = (calendars || []).find((c: any) => c.url === calendarUrl);
-    if (!calendar) throw new Error('Calendar not found');
-
-    const params: any = { calendar };
-    if (timeRangeStart && timeRangeEnd) {
-      const tz = resolveTimezone(extractCalendarTimezone(calendar.timezone));
-      params.timeRange = {
-        start: ensureOffsetAware(timeRangeStart, tz),
-        end: ensureOffsetAware(timeRangeEnd, tz),
-      };
-    }
-    const objs = await caldav.fetchCalendarObjects(params);
-    const sliced = (objs || []).slice(0, limit);
-    const out = sliced.map((o: any) => ({
-      id: o.url,
-      url: o.url,
-      etag: o.etag,
-      summary: typeof o.data === 'string' ? parseIcsSummary(o.data) : undefined,
-      ical: o.data,
-    }));
-    return asText(out);
-  }
-);
-
-server.tool(
+calendarTool(
   'create_calendar_event',
   'Create a calendar event (CalDAV). Event times are stored as UTC. Naive datetimes (no offset) are interpreted in the calendar timezone (or machine default).',
   {
@@ -601,10 +602,9 @@ server.tool(
       throw new Error('This calendar is read-only. Pick a calendar with canWrite=true from list_calendars.');
     }
 
-    const organizerEmail =
-      process.env.FASTMAIL_ORGANIZER_EMAIL || process.env.FASTMAIL_USERNAME || process.env.FASTMAIL_DAV_USERNAME;
+    const organizerEmail = getOrganizerEmail();
     if (!organizerEmail) {
-      throw new Error('Missing organizer email. Set FASTMAIL_ORGANIZER_EMAIL (or FASTMAIL_USERNAME).');
+      throw new Error('Missing organizer email. Set DAV_ORGANIZER_EMAIL (or DAV_USERNAME).');
     }
 
     const tz = resolveTimezone(extractCalendarTimezone(calendar.timezone));
@@ -633,7 +633,7 @@ server.tool(
   }
 );
 
-server.tool(
+calendarTool(
   'update_calendar_event',
   'Update a calendar event by id (event URL) (CalDAV). Provide a full iCalendar string.',
   {
@@ -663,7 +663,7 @@ server.tool(
   }
 );
 
-server.tool(
+calendarTool(
   'delete_calendar_event',
   'Delete a calendar event by id (event URL) (CalDAV)',
   { eventId: z.string().min(1) },
@@ -690,7 +690,7 @@ server.tool(
 );
 
 // Contacts (CardDAV)
-server.tool('list_contact_lists', 'List contact address books (CardDAV)', async () => {
+contactTool('list_contact_lists', 'List contact address books (CardDAV)', async () => {
   const { carddav } = getDavClients();
   await carddav.login();
   const books = await carddav.fetchAddressBooks();
@@ -698,16 +698,7 @@ server.tool('list_contact_lists', 'List contact address books (CardDAV)', async 
   return asText(mapped);
 });
 
-// Back-compat with dav-mcp-server naming
-server.tool('get_my_fastmail_contact_lists', 'Alias for list_contact_lists (CardDAV)', async () => {
-  const { carddav } = getDavClients();
-  await carddav.login();
-  const books = await carddav.fetchAddressBooks();
-  const mapped = (books || []).map((b: any) => ({ id: b.url, name: b.displayName, url: b.url }));
-  return asText(mapped);
-});
-
-server.tool(
+contactTool(
   'search_contacts',
   'Search contacts (best-effort, client-side substring match) (CardDAV)',
   {
@@ -747,7 +738,7 @@ server.tool(
   }
 );
 
-server.tool(
+contactTool(
   'list_contacts',
   'List contacts from an address book (CardDAV). Returns minimal parsed summaries + raw vCard.',
   {
@@ -773,34 +764,7 @@ server.tool(
   }
 );
 
-// Back-compat with dav-mcp-server naming
-server.tool(
-  'get_contacts_from_fastmail_list',
-  'Alias for list_contacts (CardDAV)',
-  {
-    addressBookUrl: z.string().min(1),
-    limit: z.number().int().min(1).max(500).default(50),
-  },
-  async ({ addressBookUrl, limit }) => {
-    const { carddav } = getDavClients();
-    await carddav.login();
-    const books = await carddav.fetchAddressBooks();
-    const book = (books || []).find((b: any) => b.url === addressBookUrl);
-    if (!book) throw new Error('Address book not found');
-    const vcards = await carddav.fetchVCards({ addressBook: book });
-    const sliced = (vcards || []).slice(0, limit);
-    const out = sliced.map((v: any) => ({
-      id: v.url,
-      url: v.url,
-      etag: v.etag,
-      summary: typeof v.data === 'string' ? parseVCardSummary(v.data) : undefined,
-      vcard: v.data,
-    }));
-    return asText(out);
-  }
-);
-
-server.tool(
+contactTool(
   'get_contact',
   'Get a contact by id (vCard URL) (CardDAV)',
   { contactId: z.string().min(1) },
@@ -825,7 +789,7 @@ server.tool(
   }
 );
 
-server.tool(
+contactTool(
   'create_contact',
   'Create a new contact (CardDAV)',
   {
@@ -851,7 +815,7 @@ server.tool(
   }
 );
 
-server.tool(
+contactTool(
   'update_contact',
   'Update a contact by id (vCard URL) (CardDAV). Provide a full vCard string.',
   {
@@ -879,7 +843,7 @@ server.tool(
   }
 );
 
-server.tool(
+contactTool(
   'delete_contact',
   'Delete a contact by id (vCard URL) (CardDAV)',
   { contactId: z.string().min(1) },
@@ -906,11 +870,11 @@ server.tool(
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error('fastmail-mcp running on stdio');
+  console.error(`jmap-dav-mcp running on stdio (domains: ${[...domains].join(', ')})`);
 }
 
 main().catch((err) => {
-  console.error('fastmail-mcp failed to start');
+  console.error('jmap-dav-mcp failed to start');
   if (process.env.DEBUG) {
     console.error(err instanceof Error ? err.stack : String(err));
   }

@@ -1,15 +1,18 @@
-# Fastmail SDK
+# JMAP/DAV SDK
 
-TypeScript SDK for Fastmail mail (JMAP), calendar (CalDAV), and contacts (CardDAV).
+TypeScript SDK for mail (JMAP), calendar (CalDAV), and contacts (CardDAV). Provider-generic; Fastmail works out of the box. The examples below use `fastmail` as the import alias — any name works.
 
 **Import:**
 
 ```typescript
-import * as fastmail from './fastmail-mcp/src/sdk.js';
+import * as fastmail from './jmap-dav-mcp/src/sdk.js';
 ```
 
-**Required env vars:** `FASTMAIL_USERNAME` + `FASTMAIL_APP_PASSWORD` (or `FASTMAIL_API_TOKEN` alone).
-Calendar event creation also needs `FASTMAIL_ORGANIZER_EMAIL` (or falls back to `FASTMAIL_USERNAME`).
+**Required env vars:**
+
+- Fastmail: `FASTMAIL_USERNAME` + `FASTMAIL_APP_PASSWORD` (or `FASTMAIL_API_TOKEN` alone for mail). Server URLs are implied.
+- Other providers: `JMAP_BASE_URL` + `JMAP_API_TOKEN` (or `JMAP_USERNAME`/`JMAP_PASSWORD`) for mail; `CALDAV_URL`/`CARDDAV_URL` + `DAV_USERNAME`/`DAV_PASSWORD` for calendar/contacts.
+- Calendar event creation also needs `DAV_ORGANIZER_EMAIL` (falls back to `DAV_USERNAME`/`FASTMAIL_USERNAME`).
 
 ---
 

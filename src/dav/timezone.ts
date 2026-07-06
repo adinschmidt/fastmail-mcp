@@ -108,7 +108,7 @@ export function buildCalendarTimezoneProperty(tzId: string): string {
 
   const lines = [
     'BEGIN:VCALENDAR',
-    'PRODID:-//fastmail-mcp//EN',
+    'PRODID:-//jmap-dav-mcp//EN',
     'VERSION:2.0',
     'BEGIN:VTIMEZONE',
     `TZID:${tzId}`,

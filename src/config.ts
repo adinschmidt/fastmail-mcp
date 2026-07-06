@@ -1,27 +1,30 @@
-export type FastmailAuthConfig =
+export type JmapAuthConfig =
   | {
       kind: 'basic';
       username: string;
-      appPassword: string;
-      baseUrl: string;
+      password: string;
+      sessionUrl: string;
     }
   | {
       kind: 'bearer';
       apiToken: string;
-      baseUrl: string;
+      sessionUrl: string;
     };
 
 export type DavConfig = {
   username: string;
-  appPassword: string;
+  password: string;
   caldavUrl: string;
   carddavUrl: string;
 };
 
-function normalizeUrl(input: string, defaultUrl: string): string {
-  const raw = (input || '').trim();
-  const base = raw.length > 0 ? raw : defaultUrl;
-  const withProto = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(base) ? base : `https://${base}`;
+const FASTMAIL_JMAP_BASE = 'https://api.fastmail.com';
+const FASTMAIL_CALDAV_BASE = 'https://caldav.fastmail.com';
+const FASTMAIL_CARDDAV_BASE = 'https://carddav.fastmail.com';
+
+function normalizeUrl(input: string): string {
+  const raw = input.trim();
+  const withProto = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(raw) ? raw : `https://${raw}`;
   return withProto.replace(/\/+$/, '');
 }
 
@@ -35,47 +38,141 @@ function env(name: string): string | undefined {
   return t;
 }
 
+/** First non-empty value among the given env var names. */
+function envAny(...names: string[]): string | undefined {
+  for (const name of names) {
+    const v = env(name);
+    if (v !== undefined) return v;
+  }
+  return undefined;
+}
+
+/** True when the credential env vars in use are the legacy FASTMAIL_* ones. */
+function usingFastmailCredentials(): boolean {
+  return Boolean(
+    env('FASTMAIL_API_TOKEN') ||
+      env('FASTMAIL_USERNAME') ||
+      env('FASTMAIL_APP_PASSWORD') ||
+      env('FASTMAIL_DAV_USERNAME')
+  );
+}
+
 function ensureTrailingSlash(url: string): string {
   return url.endsWith('/') ? url : `${url}/`;
 }
 
-export function loadFastmailAuthConfig(): FastmailAuthConfig {
-  const baseUrl = normalizeUrl(env('FASTMAIL_BASE_URL') || '', 'https://api.fastmail.com');
+export function loadJmapAuthConfig(): JmapAuthConfig {
+  const explicitSessionUrl = env('JMAP_SESSION_URL');
+  const baseUrlRaw = envAny('JMAP_BASE_URL', 'FASTMAIL_BASE_URL');
 
-  const apiToken = env('FASTMAIL_API_TOKEN');
-  if (apiToken) {
-    return { kind: 'bearer', apiToken, baseUrl };
+  const apiToken = envAny('JMAP_API_TOKEN', 'FASTMAIL_API_TOKEN');
+  const username = envAny('JMAP_USERNAME', 'FASTMAIL_USERNAME');
+  const password = envAny('JMAP_PASSWORD', 'FASTMAIL_APP_PASSWORD');
+
+  let sessionUrl: string;
+  if (explicitSessionUrl) {
+    sessionUrl = normalizeUrl(explicitSessionUrl);
+  } else {
+    const baseUrl = baseUrlRaw
+      ? normalizeUrl(baseUrlRaw)
+      : usingFastmailCredentials()
+        ? FASTMAIL_JMAP_BASE
+        : undefined;
+    if (!baseUrl) {
+      throw new Error(
+        'Missing JMAP server URL. Set JMAP_BASE_URL (session discovered at <base>/.well-known/jmap) or JMAP_SESSION_URL.'
+      );
+    }
+    // RFC 8620 autodiscovery. Servers may redirect (Fastmail 302s to /jmap/session).
+    sessionUrl = `${baseUrl}/.well-known/jmap`;
   }
 
-  const username = env('FASTMAIL_USERNAME');
-  const appPassword = env('FASTMAIL_APP_PASSWORD');
-  if (!username || !appPassword) {
+  if (apiToken) {
+    return { kind: 'bearer', apiToken, sessionUrl };
+  }
+
+  if (!username || !password) {
     throw new Error(
-      'Missing credentials. Provide FASTMAIL_USERNAME + FASTMAIL_APP_PASSWORD (recommended) or FASTMAIL_API_TOKEN.'
+      'Missing JMAP credentials. Provide JMAP_USERNAME + JMAP_PASSWORD, or JMAP_API_TOKEN. (Legacy FASTMAIL_* equivalents are also accepted.)'
     );
   }
 
-  return { kind: 'basic', username, appPassword, baseUrl };
+  return { kind: 'basic', username, password, sessionUrl };
 }
 
 export function loadDavConfig(): DavConfig {
-  const username = env('FASTMAIL_DAV_USERNAME') || env('FASTMAIL_USERNAME');
-  const appPassword = env('FASTMAIL_APP_PASSWORD');
-  if (!username || !appPassword) {
-    throw new Error('Missing DAV credentials. Provide FASTMAIL_USERNAME + FASTMAIL_APP_PASSWORD.');
+  const username = envAny('DAV_USERNAME', 'FASTMAIL_DAV_USERNAME', 'FASTMAIL_USERNAME');
+  const password = envAny('DAV_PASSWORD', 'FASTMAIL_APP_PASSWORD');
+  if (!username || !password) {
+    throw new Error(
+      'Missing DAV credentials. Provide DAV_USERNAME + DAV_PASSWORD. (Legacy FASTMAIL_USERNAME + FASTMAIL_APP_PASSWORD are also accepted.)'
+    );
   }
 
-  // Fastmail CalDAV/CardDAV endpoints work reliably using the principal URL.
-  const caldavBase = normalizeUrl(env('FASTMAIL_CALDAV_URL') || '', 'https://caldav.fastmail.com');
-  const carddavBase = normalizeUrl(env('FASTMAIL_CARDDAV_URL') || '', 'https://carddav.fastmail.com');
+  const caldavRaw = envAny('CALDAV_URL', 'FASTMAIL_CALDAV_URL');
+  const carddavRaw = envAny('CARDDAV_URL', 'FASTMAIL_CARDDAV_URL');
+  const isFastmail = usingFastmailCredentials();
+  if ((!caldavRaw || !carddavRaw) && !isFastmail) {
+    throw new Error(
+      'Missing DAV server URLs. Set CALDAV_URL and CARDDAV_URL (tsdav discovers collections from the server root).'
+    );
+  }
 
-  const principalUser = encodeURIComponent(username);
-  const caldavUrl = ensureTrailingSlash(
-    caldavBase.includes('/dav/') ? caldavBase : `${caldavBase}/dav/principals/user/${principalUser}`
-  );
-  const carddavUrl = ensureTrailingSlash(
-    carddavBase.includes('/dav/') ? carddavBase : `${carddavBase}/dav/principals/user/${principalUser}`
-  );
+  const caldavBase = normalizeUrl(caldavRaw || FASTMAIL_CALDAV_BASE);
+  const carddavBase = normalizeUrl(carddavRaw || FASTMAIL_CARDDAV_BASE);
 
-  return { username, appPassword, caldavUrl, carddavUrl };
+  return {
+    username,
+    password,
+    caldavUrl: withFastmailPrincipalPath(caldavBase, username),
+    carddavUrl: withFastmailPrincipalPath(carddavBase, username),
+  };
+}
+
+/**
+ * Fastmail's DAV endpoints work most reliably when pointed at the principal
+ * URL. For any other host, leave the URL untouched — tsdav discovers
+ * collections from the server root.
+ */
+function withFastmailPrincipalPath(baseUrl: string, username: string): string {
+  let host = '';
+  try {
+    host = new URL(baseUrl).hostname;
+  } catch {
+    return baseUrl;
+  }
+  if (!/(^|\.)fastmail\.com$/.test(host) || baseUrl.includes('/dav/')) {
+    return ensureTrailingSlash(baseUrl);
+  }
+  return ensureTrailingSlash(`${baseUrl}/dav/principals/user/${encodeURIComponent(username)}`);
+}
+
+/** Organizer email used in generated iCalendar events. */
+export function getOrganizerEmail(): string | undefined {
+  return envAny(
+    'DAV_ORGANIZER_EMAIL',
+    'FASTMAIL_ORGANIZER_EMAIL',
+    'DAV_USERNAME',
+    'JMAP_USERNAME',
+    'FASTMAIL_USERNAME',
+    'FASTMAIL_DAV_USERNAME'
+  );
+}
+
+export function hasJmapConfig(): boolean {
+  try {
+    loadJmapAuthConfig();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function hasDavConfig(): boolean {
+  try {
+    loadDavConfig();
+    return true;
+  } catch {
+    return false;
+  }
 }

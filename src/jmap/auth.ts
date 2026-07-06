@@ -1,14 +1,14 @@
-import { FastmailAuthConfig } from '../config.js';
+import { JmapAuthConfig } from '../config.js';
 
-export class FastmailJmapAuth {
-  private cfg: FastmailAuthConfig;
+export class JmapAuth {
+  private cfg: JmapAuthConfig;
 
-  constructor(cfg: FastmailAuthConfig) {
+  constructor(cfg: JmapAuthConfig) {
     this.cfg = cfg;
   }
 
   getSessionUrl(): string {
-    return `${this.cfg.baseUrl}/jmap/session`;
+    return this.cfg.sessionUrl;
   }
 
   getHeaders(): Record<string, string> {
@@ -20,7 +20,7 @@ export class FastmailJmapAuth {
       return { ...common, Authorization: `Bearer ${this.cfg.apiToken}` };
     }
 
-    const token = Buffer.from(`${this.cfg.username}:${this.cfg.appPassword}`, 'utf8').toString('base64');
+    const token = Buffer.from(`${this.cfg.username}:${this.cfg.password}`, 'utf8').toString('base64');
     return { ...common, Authorization: `Basic ${token}` };
   }
 }

@@ -1,12 +1,14 @@
 # Agent Instructions
 
-This repo is a Bun + TypeScript MCP server for Fastmail mail (JMAP) + calendar (CalDAV) + contacts (CardDAV).
+This repo is a Bun + TypeScript MCP server for mail (JMAP) + calendar (CalDAV) + contacts (CardDAV). It is provider-generic; Fastmail works out of the box via legacy `FASTMAIL_*` env vars (the project began as `fastmail-mcp`).
 
 Key paths:
 
-- `src/index.ts` MCP server + tool registration
+- `src/index.ts` MCP server + tool registration (domain-gated: mail/calendar/contacts register based on configured credentials or `MCP_DOMAINS`)
+- `src/bin/*` mail-only (`jmap-mcp`) and calendar/contacts-only (`dav-mcp`) entry points
 - `src/jmap/*` JMAP auth/client/types
 - `src/dav/*` CalDAV/CardDAV client helpers + iCal/vCard helpers
+- `src/config.ts` env var loading — generic `JMAP_*`/`DAV_*`/`CALDAV_URL`/`CARDDAV_URL` vars with `FASTMAIL_*` fallbacks that imply Fastmail server URLs
 
 This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
 
@@ -32,10 +34,9 @@ Lint/format:
 
 Tests:
 
-- No test runner is currently configured and there are no tests in-repo.
-- If/when tests are added, Bun's built-in runner is the intended default:
+- Bun's built-in runner (`*.test.ts` files in `src/`):
   - Run all: `bun test`
-  - Run one file: `bun test src/foo.test.ts`
+  - Run one file: `bun test src/calendar-crud.test.ts`
   - Run one test by name: `bun test -t "parses vCard"`
   - Watch: `bun test --watch`
 
@@ -94,7 +95,7 @@ MCP tool conventions:
 
 - Tool inputs: define a `zod` schema with `.describe(...)` strings that read well in clients.
 - Tool outputs: return stable, JSON-serializable objects; keep top-level keys consistent (`id`, `url`, `etag`, `summary`, etc.).
-- Back-compat: if you rename a tool, keep an alias tool name when feasible (see `get_my_fastmail_calendars`).
+- Back-compat: if you rename a tool, keep an alias tool name when feasible.
 
 Quality checklist (before committing changes):
 
@@ -113,7 +114,7 @@ Quality checklist (before committing changes):
 ## Secrets & Repo Hygiene
 
 - Do not commit credentials.
-- Do not commit `.env` (already ignored). Treat `FASTMAIL_*` as secrets.
+- Do not commit `.env` (already ignored). Treat `JMAP_*`, `DAV_*`, and `FASTMAIL_*` values as secrets.
 - Do not edit `bun.lock` by hand.
 
 ## Cursor / Copilot Rules

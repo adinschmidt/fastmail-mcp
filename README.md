@@ -1,50 +1,57 @@
 Check out my [other MCP tools](https://github.com/adinschmidt/mcps)
 
-# fastmail-mcp
+# jmap-dav-mcp
 
-Unified Model Context Protocol (MCP) server for:
+Generic Model Context Protocol (MCP) server for open email/PIM standards:
 
-- Mail via Fastmail JMAP
-- Calendar via CalDAV (Fastmail)
-- Contacts via CardDAV (Fastmail)
+- Mail via **JMAP** (RFC 8620/8621)
+- Calendar via **CalDAV**
+- Contacts via **CardDAV**
 
-This repo is designed to work with a Fastmail **app password** for CalDAV/CardDAV and can optionally use a Fastmail JMAP API token for mail.
+Works with any compliant server. **Fastmail works out of the box** (this project began as `fastmail-mcp`), and the JMAP side also works with self-hosted servers like Stalwart, Cyrus, and Apache James. The CalDAV/CardDAV side works with iCloud, Nextcloud, Radicale, Baïkal, and friends.
+
+Tool domains (mail / calendar / contacts) are registered based on which credentials you configure — a calendar-only setup exposes only calendar tools.
 
 ## Requirements
 
-- Bun 1.3+ (recommended)
-- Node.js 18+ (optional)
-- Fastmail account
-- Fastmail app password (recommended)
+- Bun 1.3+ (recommended) or Node.js 18+
+- Credentials for a JMAP and/or CalDAV/CardDAV server
 
 ## Configuration
 
-For full access (mail + calendar + contacts), set:
+### Mail (JMAP)
 
-- `FASTMAIL_API_TOKEN`
-- `FASTMAIL_USERNAME`
-- `FASTMAIL_APP_PASSWORD`
+| Variable | Description |
+| --- | --- |
+| `JMAP_BASE_URL` | Server base URL. The session is discovered at `<base>/.well-known/jmap` (RFC 8620). |
+| `JMAP_SESSION_URL` | Alternative: point directly at the session resource (overrides `JMAP_BASE_URL`). |
+| `JMAP_API_TOKEN` | Bearer token auth (recommended where supported). |
+| `JMAP_USERNAME` + `JMAP_PASSWORD` | Basic auth alternative. |
 
-### Auth (recommended)
+### Calendar + Contacts (CalDAV/CardDAV)
 
-Set:
+| Variable | Description |
+| --- | --- |
+| `CALDAV_URL` | CalDAV server URL (server root is fine — collections are discovered). |
+| `CARDDAV_URL` | CardDAV server URL. |
+| `DAV_USERNAME` + `DAV_PASSWORD` | Basic auth credentials (use an app password where supported). |
+| `DAV_ORGANIZER_EMAIL` | Optional. ORGANIZER email used when generating events (defaults to `DAV_USERNAME`). |
 
-- `FASTMAIL_USERNAME` (your Fastmail login / email)
-- `FASTMAIL_APP_PASSWORD` (Fastmail app password)
+### Domain selection
 
-Optional:
+| Variable | Description |
+| --- | --- |
+| `MCP_DOMAINS` | Optional comma list of `mail`, `calendar`, `contacts`. Overrides credential-based auto-detection. |
 
-- `FASTMAIL_BASE_URL` (default: `https://api.fastmail.com`)
-- `FASTMAIL_CALDAV_URL` (default: `https://caldav.fastmail.com`)
-- `FASTMAIL_CARDDAV_URL` (default: `https://carddav.fastmail.com`)
-- `FASTMAIL_DAV_USERNAME` (if your DAV username differs from `FASTMAIL_USERNAME`)
-- `FASTMAIL_ORGANIZER_EMAIL` (override ORGANIZER email used when generating events)
+### Fastmail
 
-### Auth (optional alternative)
+Legacy `FASTMAIL_*` variables are fully supported and imply the Fastmail server URLs, so an existing Fastmail setup needs no URL configuration:
 
-If you prefer using a Fastmail API token for mail/JMAP:
+- `FASTMAIL_USERNAME` + `FASTMAIL_APP_PASSWORD` — mail (JMAP basic auth) + calendar + contacts
+- `FASTMAIL_API_TOKEN` — mail via JMAP bearer token (optional alternative)
+- `FASTMAIL_BASE_URL`, `FASTMAIL_CALDAV_URL`, `FASTMAIL_CARDDAV_URL`, `FASTMAIL_DAV_USERNAME`, `FASTMAIL_ORGANIZER_EMAIL` — optional overrides
 
-- `FASTMAIL_API_TOKEN`
+Create an app password in Fastmail Settings → Privacy & Security → App passwords.
 
 ## Install
 
@@ -52,7 +59,7 @@ If you prefer using a Fastmail API token for mail/JMAP:
 bun install
 ```
 
-Optional (build a single-file `dist/` bundle):
+Optional (bundle to `dist/`):
 
 ```bash
 bun run build
@@ -61,7 +68,7 @@ bun run build
 ## Run
 
 ```bash
-bun run start
+bun run start        # all configured domains
 ```
 
 Dev (auto-reload):
@@ -70,22 +77,30 @@ Dev (auto-reload):
 bun run dev
 ```
 
-Run via bunx:
+Via bunx:
 
 ```bash
 bunx --bun github:adinschmidt/fastmail-mcp
 ```
 
+### Entry points
+
+| Bin | Domains |
+| --- | --- |
+| `jmap-dav-mcp` (also `fastmail-mcp`) | everything configured |
+| `jmap-mcp` (`src/bin/jmap-mcp.ts`) | mail only |
+| `dav-mcp` (`src/bin/dav-mcp.ts`) | calendar + contacts only |
+
 ## MCP Client Config Examples
 
-### Generic MCP config (`mcpServers`)
+### Fastmail (`mcpServers`)
 
 ```jsonc
 {
   "mcpServers": {
     "fastmail": {
       "command": "bun",
-      "args": ["/absolute/path/to/fastmail-mcp/src/index.ts"],
+      "args": ["/absolute/path/to/jmap-dav-mcp/src/index.ts"],
       "env": {
         "FASTMAIL_USERNAME": "you@fastmail.com",
         "FASTMAIL_APP_PASSWORD": "your-app-password"
@@ -95,37 +110,40 @@ bunx --bun github:adinschmidt/fastmail-mcp
 }
 ```
 
-If you prefer `bunx`:
+### Generic servers
 
 ```jsonc
 {
   "mcpServers": {
-    "fastmail": {
-      "command": "bunx",
-      "args": ["--bun", "github:adinschmidt/fastmail-mcp"],
+    "mail-calendar-contacts": {
+      "command": "bun",
+      "args": ["/absolute/path/to/jmap-dav-mcp/src/index.ts"],
       "env": {
-        "FASTMAIL_USERNAME": "you@fastmail.com",
-        "FASTMAIL_APP_PASSWORD": "your-app-password",
-        "FASTMAIL_API_TOKEN": "your-fastmail-api-token"
+        "JMAP_BASE_URL": "https://mail.example.com",
+        "JMAP_API_TOKEN": "your-token",
+        "CALDAV_URL": "https://dav.example.com",
+        "CARDDAV_URL": "https://dav.example.com",
+        "DAV_USERNAME": "you@example.com",
+        "DAV_PASSWORD": "your-app-password"
       }
     }
   }
 }
 ```
 
-### OpenCode config (`.mcp.json`)
+### Calendar/contacts only (e.g. iCloud, Nextcloud)
 
 ```jsonc
 {
-  "$schema": "https://opencode.ai/config.json",
-  "mcp": {
-    "fastmail": {
-      "type": "local",
-      "command": ["bun", "./src/index.ts"],
-      "enabled": true,
-      "environment": {
-        "FASTMAIL_USERNAME": "you@fastmail.com",
-        "FASTMAIL_APP_PASSWORD": "your-app-password"
+  "mcpServers": {
+    "calendar": {
+      "command": "bun",
+      "args": ["/absolute/path/to/jmap-dav-mcp/src/bin/dav-mcp.ts"],
+      "env": {
+        "CALDAV_URL": "https://caldav.icloud.com",
+        "CARDDAV_URL": "https://contacts.icloud.com",
+        "DAV_USERNAME": "you@icloud.com",
+        "DAV_PASSWORD": "app-specific-password"
       }
     }
   }
@@ -147,10 +165,15 @@ Mail (JMAP):
 - `mark_email_read`
 - `move_email`
 - `delete_email`
+- `get_email_attachments`
+- `download_attachment`
 
 Calendar (CalDAV):
 
 - `list_calendars`
+- `create_calendar`
+- `update_calendar`
+- `delete_calendar`
 - `get_calendar_event`
 - `list_calendar_events`
 - `create_calendar_event`
@@ -169,8 +192,9 @@ Contacts (CardDAV):
 
 ## Security Notes
 
-- Prefer app passwords (Fastmail Settings > Privacy & Security > App passwords).
-- `delete_mailbox` refuses to delete protected system mailboxes (for example Inbox, Spam, Trash, Sent, Drafts, Archive).
+- Prefer app passwords / API tokens over your account password.
+- `delete_mailbox` refuses to delete protected system mailboxes (Inbox, Spam, Trash, Sent, Drafts, Archive).
+- `delete_calendar` refuses to delete the last remaining calendar.
 
 ## Troubleshooting
 
@@ -181,3 +205,7 @@ In almost all cases this means you're trying to write to a **read-only** calenda
 1. Run `list_calendars`
 2. Pick a calendar with `canWrite: true`
 3. Use that calendar's `id` as `calendarId` for `create_calendar_event`
+
+### JMAP session errors on non-Fastmail servers
+
+The session is discovered at `<JMAP_BASE_URL>/.well-known/jmap`, following redirects with auth. If your server hosts the session elsewhere, set `JMAP_SESSION_URL` directly.
