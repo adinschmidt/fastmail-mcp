@@ -44,7 +44,13 @@ export class JmapClient {
     }
 
     const sessionData = (await res.json()) as any;
-    const accountId = Object.keys(sessionData.accounts || {})[0];
+    // Prefer the primary mail account (RFC 8621): sessions can contain
+    // extra accounts (shared/contacts-only) in arbitrary order.
+    const primary = sessionData.primaryAccounts || {};
+    const accountId =
+      primary[JMAP_MAIL_CAPABILITY] ||
+      primary[JMAP_CORE_CAPABILITY] ||
+      Object.keys(sessionData.accounts || {})[0];
     if (!accountId) {
       throw new Error('JMAP session missing accounts');
     }
@@ -104,7 +110,7 @@ export class JmapClient {
       methodCalls: [['Mailbox/get', { accountId: session.accountId }, 'mb']],
     };
     const res = await this.request(req);
-    return res.methodResponses[0]?.[1]?.list || [];
+    return this.getMethodResult(res, 0, 'Mailbox/get')?.list || [];
   }
 
   async createMailbox(input: {
@@ -209,7 +215,7 @@ export class JmapClient {
       ],
     };
     const res = await this.request(req);
-    return res.methodResponses[1]?.[1]?.list || [];
+    return this.getMethodResult(res, 1, 'Email/get')?.list || [];
   }
 
   async getEmail(emailId: string): Promise<any> {
@@ -246,7 +252,7 @@ export class JmapClient {
       ],
     };
     const res = await this.request(req);
-    const list = res.methodResponses[0]?.[1]?.list;
+    const list = this.getMethodResult(res, 0, 'Email/get')?.list;
     if (!Array.isArray(list) || list.length === 0) {
       throw new Error('Email not found');
     }
@@ -280,7 +286,7 @@ export class JmapClient {
       ],
     };
     const res = await this.request(req);
-    return res.methodResponses[1]?.[1]?.list || [];
+    return this.getMethodResult(res, 1, 'Email/get')?.list || [];
   }
 
   async getIdentities(): Promise<any[]> {
@@ -290,7 +296,7 @@ export class JmapClient {
       methodCalls: [['Identity/get', { accountId: session.accountId }, 'ids']],
     };
     const res = await this.request(req);
-    return res.methodResponses[0]?.[1]?.list || [];
+    return this.getMethodResult(res, 0, 'Identity/get')?.list || [];
   }
 
   async sendEmail(input: {
