@@ -25,7 +25,10 @@ import {
 
 const server = new McpServer({
   name: 'jmap-dav-mcp',
-  version: '0.1.0',
+  version: '0.2.0',
+  title: 'Mail, Calendar & Contacts (JMAP/DAV)',
+  description:
+    'Generic MCP server for mail (JMAP) + calendar (CalDAV) + contacts (CardDAV). Works with Fastmail out of the box.',
 });
 
 type ToolDomain = 'mail' | 'calendar' | 'contacts';
@@ -58,10 +61,10 @@ function resolveDomains(): Set<ToolDomain> {
 const domains = resolveDomains();
 
 // Registers the tool only when its domain is enabled. Cast preserves the
-// overloaded signature of server.tool so handler params stay inferred.
-function makeTool(enabled: boolean): McpServer['tool'] {
-  if (enabled) return server.tool.bind(server) as McpServer['tool'];
-  return ((..._args: unknown[]) => undefined) as unknown as McpServer['tool'];
+// generic signature of server.registerTool so handler params stay inferred.
+function makeTool(enabled: boolean): McpServer['registerTool'] {
+  if (enabled) return server.registerTool.bind(server) as McpServer['registerTool'];
+  return ((..._args: unknown[]) => undefined) as unknown as McpServer['registerTool'];
 }
 const mailTool = makeTool(domains.has('mail'));
 const calendarTool = makeTool(domains.has('calendar'));
@@ -196,21 +199,33 @@ function assertMailboxCanBeDeleted(mailboxes: any[], mailboxId: string): void {
 }
 
 // Mail (JMAP)
-mailTool('list_mailboxes', 'List mailboxes/folders (JMAP)', async () => {
-  const c = getJmapClient();
-  const mailboxes = await c.listMailboxes();
-  return asText(mailboxes);
-});
+mailTool(
+  'list_mailboxes',
+  {
+    title: 'List Mailboxes',
+    description: 'List mailboxes/folders (JMAP)',
+    annotations: { readOnlyHint: true },
+  },
+  async () => {
+    const c = getJmapClient();
+    const mailboxes = await c.listMailboxes();
+    return asText(mailboxes);
+  }
+);
 
 mailTool(
   'create_mailbox',
-  'Create a mailbox/folder (label) (JMAP)',
   {
-    name: z.string().min(1).describe('Mailbox name'),
-    parentId: z.string().min(1).optional().describe('Optional parent mailbox id'),
-    role: z.string().min(1).optional().describe('Optional mailbox role (use only for special system-like mailboxes)'),
-    sortOrder: z.number().int().optional().describe('Optional sort order'),
-    isSubscribed: z.boolean().optional().describe('Optional subscribed flag'),
+    title: 'Create Mailbox',
+    description: 'Create a mailbox/folder (label) (JMAP)',
+    inputSchema: {
+      name: z.string().min(1).describe('Mailbox name'),
+      parentId: z.string().min(1).optional().describe('Optional parent mailbox id'),
+      role: z.string().min(1).optional().describe('Optional mailbox role (use only for special system-like mailboxes)'),
+      sortOrder: z.number().int().optional().describe('Optional sort order'),
+      isSubscribed: z.boolean().optional().describe('Optional subscribed flag'),
+    },
+    annotations: { destructiveHint: false, idempotentHint: false },
   },
   async ({ name, parentId, role, sortOrder, isSubscribed }) => {
     const c = getJmapClient();
@@ -221,13 +236,17 @@ mailTool(
 
 mailTool(
   'update_mailbox',
-  'Update mailbox properties (JMAP)',
   {
-    mailboxId: z.string().min(1),
-    name: z.string().min(1).optional(),
-    parentId: z.string().min(1).nullable().optional(),
-    sortOrder: z.number().int().optional(),
-    isSubscribed: z.boolean().optional(),
+    title: 'Update Mailbox',
+    description: 'Update mailbox properties (JMAP)',
+    inputSchema: {
+      mailboxId: z.string().min(1),
+      name: z.string().min(1).optional(),
+      parentId: z.string().min(1).nullable().optional(),
+      sortOrder: z.number().int().optional(),
+      isSubscribed: z.boolean().optional(),
+    },
+    annotations: { destructiveHint: false, idempotentHint: true },
   },
   async ({ mailboxId, name, parentId, sortOrder, isSubscribed }) => {
     if (
@@ -251,8 +270,12 @@ mailTool(
 
 mailTool(
   'delete_mailbox',
-  'Delete a mailbox/folder (label) (JMAP)',
-  { mailboxId: z.string().min(1) },
+  {
+    title: 'Delete Mailbox',
+    description: 'Delete a mailbox/folder (label) (JMAP)',
+    inputSchema: { mailboxId: z.string().min(1) },
+    annotations: { destructiveHint: true, idempotentHint: true },
+  },
   async ({ mailboxId }) => {
     const c = getJmapClient();
     const mailboxes = await c.listMailboxes();
@@ -264,10 +287,14 @@ mailTool(
 
 mailTool(
   'list_emails',
-  'List emails from a mailbox (JMAP). You MUST call list_mailboxes first to get the mailbox ID — pass the id field, not the name.',
   {
-    mailboxId: z.string().optional().describe('Mailbox ID from list_mailboxes (e.g. "P-F"). Do NOT pass a name like "Inbox". If omitted, returns emails from ALL mailboxes.'),
-    limit: z.number().int().min(1).max(200).default(20).describe('Max emails to return'),
+    title: 'List Emails',
+    description: 'List emails from a mailbox (JMAP). You MUST call list_mailboxes first to get the mailbox ID — pass the id field, not the name.',
+    inputSchema: {
+      mailboxId: z.string().optional().describe('Mailbox ID from list_mailboxes (e.g. "P-F"). Do NOT pass a name like "Inbox". If omitted, returns emails from ALL mailboxes.'),
+      limit: z.number().int().min(1).max(200).default(20).describe('Max emails to return'),
+    },
+    annotations: { readOnlyHint: true },
   },
   async ({ mailboxId, limit }) => {
     const c = getJmapClient();
@@ -278,8 +305,12 @@ mailTool(
 
 mailTool(
   'get_email',
-  'Get an email by id (JMAP)',
-  { emailId: z.string().min(1) },
+  {
+    title: 'Get Email',
+    description: 'Get an email by id (JMAP)',
+    inputSchema: { emailId: z.string().min(1) },
+    annotations: { readOnlyHint: true },
+  },
   async ({ emailId }) => {
     const c = getJmapClient();
     const email = await c.getEmail(emailId);
@@ -289,10 +320,14 @@ mailTool(
 
 mailTool(
   'search_emails',
-  'Search emails by full-text query (JMAP)',
   {
-    query: z.string().min(1),
-    limit: z.number().int().min(1).max(200).default(20),
+    title: 'Search Emails',
+    description: 'Search emails by full-text query (JMAP)',
+    inputSchema: {
+      query: z.string().min(1),
+      limit: z.number().int().min(1).max(200).default(20),
+    },
+    annotations: { readOnlyHint: true },
   },
   async ({ query, limit }) => {
     const c = getJmapClient();
@@ -303,15 +338,19 @@ mailTool(
 
 mailTool(
   'send_email',
-  'Send an email (JMAP)',
   {
-    to: z.array(z.string().email()).min(1),
-    cc: z.array(z.string().email()).optional(),
-    bcc: z.array(z.string().email()).optional(),
-    from: z.string().email().optional(),
-    subject: z.string().min(1),
-    textBody: z.string().optional(),
-    htmlBody: z.string().optional(),
+    title: 'Send Email',
+    description: 'Send an email (JMAP)',
+    inputSchema: {
+      to: z.array(z.string().email()).min(1),
+      cc: z.array(z.string().email()).optional(),
+      bcc: z.array(z.string().email()).optional(),
+      from: z.string().email().optional(),
+      subject: z.string().min(1),
+      textBody: z.string().optional(),
+      htmlBody: z.string().optional(),
+    },
+    annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: true },
   },
   async ({ to, cc, bcc, from, subject, textBody, htmlBody }) => {
     const c = getJmapClient();
@@ -324,10 +363,14 @@ mailTool(
 
 mailTool(
   'mark_email_read',
-  'Mark an email read/unread (JMAP)',
   {
-    emailId: z.string().min(1),
-    read: z.boolean().default(true),
+    title: 'Mark Email Read/Unread',
+    description: 'Mark an email read/unread (JMAP)',
+    inputSchema: {
+      emailId: z.string().min(1),
+      read: z.boolean().default(true),
+    },
+    annotations: { destructiveHint: false, idempotentHint: true },
   },
   async ({ emailId, read }) => {
     const c = getJmapClient();
@@ -338,10 +381,14 @@ mailTool(
 
 mailTool(
   'move_email',
-  'Move an email to another mailbox (JMAP). Call list_mailboxes first to get the target mailbox ID.',
   {
-    emailId: z.string().min(1),
-    targetMailboxId: z.string().min(1).describe('Mailbox ID from list_mailboxes (e.g. "P1-"). Do NOT pass a name like "Trash".'),
+    title: 'Move Email',
+    description: 'Move an email to another mailbox (JMAP). Call list_mailboxes first to get the target mailbox ID.',
+    inputSchema: {
+      emailId: z.string().min(1),
+      targetMailboxId: z.string().min(1).describe('Mailbox ID from list_mailboxes (e.g. "P1-"). Do NOT pass a name like "Trash".'),
+    },
+    annotations: { destructiveHint: false, idempotentHint: true },
   },
   async ({ emailId, targetMailboxId }) => {
     const c = getJmapClient();
@@ -352,8 +399,12 @@ mailTool(
 
 mailTool(
   'delete_email',
-  'Delete an email (moves to Trash) (JMAP)',
-  { emailId: z.string().min(1) },
+  {
+    title: 'Delete Email',
+    description: 'Delete an email (moves to Trash) (JMAP)',
+    inputSchema: { emailId: z.string().min(1) },
+    annotations: { destructiveHint: true, idempotentHint: true },
+  },
   async ({ emailId }) => {
     const c = getJmapClient();
     await c.deleteEmail(emailId);
@@ -363,8 +414,12 @@ mailTool(
 
 mailTool(
   'get_email_attachments',
-  'List attachments for an email (JMAP)',
-  { emailId: z.string().min(1) },
+  {
+    title: 'List Email Attachments',
+    description: 'List attachments for an email (JMAP)',
+    inputSchema: { emailId: z.string().min(1) },
+    annotations: { readOnlyHint: true },
+  },
   async ({ emailId }) => {
     const c = getJmapClient();
     const attachments = await c.getEmailAttachments(emailId);
@@ -374,8 +429,12 @@ mailTool(
 
 mailTool(
   'download_attachment',
-  'Get a download URL for an attachment (JMAP)',
-  { emailId: z.string().min(1), attachmentId: z.string().min(1) },
+  {
+    title: 'Get Attachment Download URL',
+    description: 'Get a download URL for an attachment (JMAP)',
+    inputSchema: { emailId: z.string().min(1), attachmentId: z.string().min(1) },
+    annotations: { readOnlyHint: true },
+  },
   async ({ emailId, attachmentId }) => {
     const c = getJmapClient();
     const url = await c.getAttachmentDownloadUrl(emailId, attachmentId);
@@ -384,22 +443,34 @@ mailTool(
 );
 
 // Calendar (CalDAV)
-calendarTool('list_calendars', 'List calendars (CalDAV)', async () => {
-  const mapped = await listCalendarsWithRights();
-  return asText(mapped);
-});
+calendarTool(
+  'list_calendars',
+  {
+    title: 'List Calendars',
+    description: 'List calendars (CalDAV)',
+    annotations: { readOnlyHint: true },
+  },
+  async () => {
+    const mapped = await listCalendarsWithRights();
+    return asText(mapped);
+  }
+);
 
 calendarTool(
   'create_calendar',
-  'Create a new calendar collection (CalDAV)',
   {
-    name: z.string().min(1).describe('Display name for the new calendar'),
-    description: z.string().optional().describe('Calendar description'),
-    color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional().describe('Calendar color as CSS hex (e.g. #FF0000)'),
-    timezone: z
-      .string()
-      .optional()
-      .describe('IANA timezone (e.g. America/New_York). Defaults to machine timezone.'),
+    title: 'Create Calendar',
+    description: 'Create a new calendar collection (CalDAV)',
+    inputSchema: {
+      name: z.string().min(1).describe('Display name for the new calendar'),
+      description: z.string().optional().describe('Calendar description'),
+      color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional().describe('Calendar color as CSS hex (e.g. #FF0000)'),
+      timezone: z
+        .string()
+        .optional()
+        .describe('IANA timezone (e.g. America/New_York). Defaults to machine timezone.'),
+    },
+    annotations: { destructiveHint: false, idempotentHint: false },
   },
   async ({ name, description, color, timezone }) => {
     const { caldav } = getDavClients();
@@ -425,13 +496,17 @@ calendarTool(
 
 calendarTool(
   'update_calendar',
-  'Update calendar properties (name, description, color, timezone) (CalDAV)',
   {
-    calendarId: z.string().min(1).describe('Calendar URL from list_calendars'),
-    name: z.string().min(1).optional().describe('New display name'),
-    description: z.string().optional().describe('New description'),
-    color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional().describe('New color as CSS hex (e.g. #FF0000)'),
-    timezone: z.string().optional().describe('IANA timezone (e.g. America/New_York)'),
+    title: 'Update Calendar',
+    description: 'Update calendar properties (name, description, color, timezone) (CalDAV)',
+    inputSchema: {
+      calendarId: z.string().min(1).describe('Calendar URL from list_calendars'),
+      name: z.string().min(1).optional().describe('New display name'),
+      description: z.string().optional().describe('New description'),
+      color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional().describe('New color as CSS hex (e.g. #FF0000)'),
+      timezone: z.string().optional().describe('IANA timezone (e.g. America/New_York)'),
+    },
+    annotations: { destructiveHint: false, idempotentHint: true },
   },
   async ({ calendarId, name, description, color, timezone }) => {
     if (name === undefined && description === undefined && color === undefined && timezone === undefined) {
@@ -484,9 +559,13 @@ calendarTool(
 
 calendarTool(
   'delete_calendar',
-  'Delete a calendar collection (CalDAV). Refuses to delete the last remaining calendar.',
   {
-    calendarId: z.string().min(1).describe('Calendar URL from list_calendars'),
+    title: 'Delete Calendar',
+    description: 'Delete a calendar collection (CalDAV). Refuses to delete the last remaining calendar.',
+    inputSchema: {
+      calendarId: z.string().min(1).describe('Calendar URL from list_calendars'),
+    },
+    annotations: { destructiveHint: true, idempotentHint: true },
   },
   async ({ calendarId }) => {
     const { caldav } = getDavClients();
@@ -507,8 +586,12 @@ calendarTool(
 
 calendarTool(
   'get_calendar_event',
-  'Get a calendar event by id (event URL) (CalDAV)',
-  { eventId: z.string().min(1) },
+  {
+    title: 'Get Calendar Event',
+    description: 'Get a calendar event by id (event URL) (CalDAV)',
+    inputSchema: { eventId: z.string().min(1) },
+    annotations: { readOnlyHint: true },
+  },
   async ({ eventId }) => {
     const { caldav } = getDavClients();
     await caldav.login();
@@ -537,16 +620,20 @@ const isoDatetime = z.union([
 
 calendarTool(
   'list_calendar_events',
-  'List calendar events (CalDAV). Time range is normalized to UTC. Returns minimal parsed summaries + raw iCal.',
   {
-    calendarId: z.string().min(1).describe('Calendar id (calendar URL) from list_calendars'),
-    timeRangeStart: isoDatetime
-      .optional()
-      .describe('ISO 8601 datetime. Offset optional — naive times use the calendar timezone (or machine default).'),
-    timeRangeEnd: isoDatetime
-      .optional()
-      .describe('ISO 8601 datetime. Offset optional — naive times use the calendar timezone (or machine default).'),
-    limit: z.number().int().min(1).max(500).default(50),
+    title: 'List Calendar Events',
+    description: 'List calendar events (CalDAV). Time range is normalized to UTC. Returns minimal parsed summaries + raw iCal.',
+    inputSchema: {
+      calendarId: z.string().min(1).describe('Calendar id (calendar URL) from list_calendars'),
+      timeRangeStart: isoDatetime
+        .optional()
+        .describe('ISO 8601 datetime. Offset optional — naive times use the calendar timezone (or machine default).'),
+      timeRangeEnd: isoDatetime
+        .optional()
+        .describe('ISO 8601 datetime. Offset optional — naive times use the calendar timezone (or machine default).'),
+      limit: z.number().int().min(1).max(500).default(50),
+    },
+    annotations: { readOnlyHint: true },
   },
   async ({ calendarId, timeRangeStart, timeRangeEnd, limit }) => {
     const { caldav } = getDavClients();
@@ -578,17 +665,21 @@ calendarTool(
 
 calendarTool(
   'create_calendar_event',
-  'Create a calendar event (CalDAV). Event times are stored as UTC. Naive datetimes (no offset) are interpreted in the calendar timezone (or machine default).',
   {
-    calendarId: z.string().min(1).describe('Calendar id (calendar URL) from list_calendars'),
-    title: z.string().min(1),
-    start: isoDatetime.describe('ISO 8601 datetime. Offset optional — naive times use the calendar timezone (or machine default).'),
-    end: isoDatetime.describe('ISO 8601 datetime. Offset optional — naive times use the calendar timezone (or machine default).'),
-    description: z.string().optional(),
-    location: z.string().optional(),
-    attendees: z
-      .array(z.object({ email: z.string().email(), name: z.string().optional() }))
-      .optional(),
+    title: 'Create Calendar Event',
+    description: 'Create a calendar event (CalDAV). Event times are stored as UTC. Naive datetimes (no offset) are interpreted in the calendar timezone (or machine default).',
+    inputSchema: {
+      calendarId: z.string().min(1).describe('Calendar id (calendar URL) from list_calendars'),
+      title: z.string().min(1),
+      start: isoDatetime.describe('ISO 8601 datetime. Offset optional — naive times use the calendar timezone (or machine default).'),
+      end: isoDatetime.describe('ISO 8601 datetime. Offset optional — naive times use the calendar timezone (or machine default).'),
+      description: z.string().optional(),
+      location: z.string().optional(),
+      attendees: z
+        .array(z.object({ email: z.string().email(), name: z.string().optional() }))
+        .optional(),
+    },
+    annotations: { destructiveHint: false, idempotentHint: false },
   },
   async ({ calendarId, title, start, end, description, location, attendees }) => {
     const { caldav } = getDavClients();
@@ -635,10 +726,14 @@ calendarTool(
 
 calendarTool(
   'update_calendar_event',
-  'Update a calendar event by id (event URL) (CalDAV). Provide a full iCalendar string.',
   {
-    eventId: z.string().min(1),
-    iCalString: z.string().min(1),
+    title: 'Update Calendar Event',
+    description: 'Update a calendar event by id (event URL) (CalDAV). Provide a full iCalendar string.',
+    inputSchema: {
+      eventId: z.string().min(1),
+      iCalString: z.string().min(1),
+    },
+    annotations: { destructiveHint: true, idempotentHint: true },
   },
   async ({ eventId, iCalString }) => {
     const { caldav } = getDavClients();
@@ -665,8 +760,12 @@ calendarTool(
 
 calendarTool(
   'delete_calendar_event',
-  'Delete a calendar event by id (event URL) (CalDAV)',
-  { eventId: z.string().min(1) },
+  {
+    title: 'Delete Calendar Event',
+    description: 'Delete a calendar event by id (event URL) (CalDAV)',
+    inputSchema: { eventId: z.string().min(1) },
+    annotations: { destructiveHint: true, idempotentHint: true },
+  },
   async ({ eventId }) => {
     const { caldav } = getDavClients();
     await caldav.login();
@@ -690,21 +789,33 @@ calendarTool(
 );
 
 // Contacts (CardDAV)
-contactTool('list_contact_lists', 'List contact address books (CardDAV)', async () => {
-  const { carddav } = getDavClients();
-  await carddav.login();
-  const books = await carddav.fetchAddressBooks();
-  const mapped = (books || []).map((b: any) => ({ id: b.url, name: b.displayName, url: b.url }));
-  return asText(mapped);
-});
+contactTool(
+  'list_contact_lists',
+  {
+    title: 'List Address Books',
+    description: 'List contact address books (CardDAV)',
+    annotations: { readOnlyHint: true },
+  },
+  async () => {
+    const { carddav } = getDavClients();
+    await carddav.login();
+    const books = await carddav.fetchAddressBooks();
+    const mapped = (books || []).map((b: any) => ({ id: b.url, name: b.displayName, url: b.url }));
+    return asText(mapped);
+  }
+);
 
 contactTool(
   'search_contacts',
-  'Search contacts (best-effort, client-side substring match) (CardDAV)',
   {
-    query: z.string().min(1),
-    addressBookId: z.string().min(1).optional().describe('Limit search to a specific address book URL (optional)'),
-    limit: z.number().int().min(1).max(500).default(50),
+    title: 'Search Contacts',
+    description: 'Search contacts (best-effort, client-side substring match) (CardDAV)',
+    inputSchema: {
+      query: z.string().min(1),
+      addressBookId: z.string().min(1).optional().describe('Limit search to a specific address book URL (optional)'),
+      limit: z.number().int().min(1).max(500).default(50),
+    },
+    annotations: { readOnlyHint: true },
   },
   async ({ query, addressBookId, limit }) => {
     const q = query.toLowerCase();
@@ -740,10 +851,14 @@ contactTool(
 
 contactTool(
   'list_contacts',
-  'List contacts from an address book (CardDAV). Returns minimal parsed summaries + raw vCard.',
   {
-    addressBookId: z.string().min(1).describe('Address book id (URL) from list_contact_lists'),
-    limit: z.number().int().min(1).max(500).default(50),
+    title: 'List Contacts',
+    description: 'List contacts from an address book (CardDAV). Returns minimal parsed summaries + raw vCard.',
+    inputSchema: {
+      addressBookId: z.string().min(1).describe('Address book id (URL) from list_contact_lists'),
+      limit: z.number().int().min(1).max(500).default(50),
+    },
+    annotations: { readOnlyHint: true },
   },
   async ({ addressBookId, limit }) => {
     const { carddav } = getDavClients();
@@ -766,8 +881,12 @@ contactTool(
 
 contactTool(
   'get_contact',
-  'Get a contact by id (vCard URL) (CardDAV)',
-  { contactId: z.string().min(1) },
+  {
+    title: 'Get Contact',
+    description: 'Get a contact by id (vCard URL) (CardDAV)',
+    inputSchema: { contactId: z.string().min(1) },
+    annotations: { readOnlyHint: true },
+  },
   async ({ contactId }) => {
     const { carddav } = getDavClients();
     await carddav.login();
@@ -791,13 +910,17 @@ contactTool(
 
 contactTool(
   'create_contact',
-  'Create a new contact (CardDAV)',
   {
-    addressBookId: z.string().min(1).describe('Address book id (URL) from list_contact_lists'),
-    fullName: z.string().min(1),
-    emails: z.array(z.string().email()).optional(),
-    phones: z.array(z.string()).optional(),
-    note: z.string().optional(),
+    title: 'Create Contact',
+    description: 'Create a new contact (CardDAV)',
+    inputSchema: {
+      addressBookId: z.string().min(1).describe('Address book id (URL) from list_contact_lists'),
+      fullName: z.string().min(1),
+      emails: z.array(z.string().email()).optional(),
+      phones: z.array(z.string()).optional(),
+      note: z.string().optional(),
+    },
+    annotations: { destructiveHint: false, idempotentHint: false },
   },
   async ({ addressBookId, fullName, emails, phones, note }) => {
     const { carddav } = getDavClients();
@@ -817,10 +940,14 @@ contactTool(
 
 contactTool(
   'update_contact',
-  'Update a contact by id (vCard URL) (CardDAV). Provide a full vCard string.',
   {
-    contactId: z.string().min(1),
-    vCardString: z.string().min(1),
+    title: 'Update Contact',
+    description: 'Update a contact by id (vCard URL) (CardDAV). Provide a full vCard string.',
+    inputSchema: {
+      contactId: z.string().min(1),
+      vCardString: z.string().min(1),
+    },
+    annotations: { destructiveHint: true, idempotentHint: true },
   },
   async ({ contactId, vCardString }) => {
     const { carddav } = getDavClients();
@@ -845,8 +972,12 @@ contactTool(
 
 contactTool(
   'delete_contact',
-  'Delete a contact by id (vCard URL) (CardDAV)',
-  { contactId: z.string().min(1) },
+  {
+    title: 'Delete Contact',
+    description: 'Delete a contact by id (vCard URL) (CardDAV)',
+    inputSchema: { contactId: z.string().min(1) },
+    annotations: { destructiveHint: true, idempotentHint: true },
+  },
   async ({ contactId }) => {
     const { carddav } = getDavClients();
     await carddav.login();
