@@ -10,8 +10,6 @@ Key paths:
 - `src/dav/*` CalDAV/CardDAV client helpers + iCal/vCard helpers
 - `src/config.ts` env var loading — generic `JMAP_*`/`DAV_*`/`CALDAV_URL`/`CARDDAV_URL` vars with `FASTMAIL_*` fallbacks that imply Fastmail server URLs
 
-This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
-
 ## Commands (Build / Lint / Test)
 
 Package manager/runtime:
@@ -123,16 +121,6 @@ Quality checklist (before committing changes):
 - No Copilot rules detected (`.github/copilot-instructions.md` not present).
 - If any are added later, they take precedence over this file.
 
-## Beads (bd) Quick Reference
-
-```bash
-bd ready
-bd show <id>
-bd update <id> --status in_progress
-bd close <id>
-bd sync
-```
-
 ## Landing the Plane (Session Completion)
 
 When ending a work session, work is NOT complete until `git push` succeeds.
@@ -140,9 +128,7 @@ When ending a work session, work is NOT complete until `git push` succeeds.
 ```bash
 git status
 git add -A
-bd sync
 git commit -m "..."
-bd sync
 git pull --rebase
 git push
 git status  # must show "up to date with origin"
